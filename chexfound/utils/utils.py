@@ -34,15 +34,61 @@ def load_pretrained_weights(model, pretrained_weights, checkpoint_key):
 
 
 def load_pretrained_weights_train(model, pretrained_weights):
-    if pretrained_weights.startswith('dinov2_'):  # TODO: DEBUGGING
+    if os.path.basename(pretrained_weights).startswith('dinov2_'):  # pure state_dict (no 'model' wrapper)
         state_dict = torch.load(pretrained_weights, map_location="cpu")
-        state_dict = {"teacher."+k: v for k, v in state_dict.items()}
-        del state_dict["teacher.backbone.pos_embed"]
+        state_dict = {"student.backbone."+k: v for k, v in state_dict.items()}
+        state_dict.pop("student.backbone.pos_embed", None)
     else:
         state_dict = torch.load(pretrained_weights, map_location="cpu")['model']
-        del state_dict["teacher.backbone.pos_embed"]
-        del state_dict["student.backbone.pos_embed"]
-    msg = model.load_state_dict(state_dict, strict=False)
+        state_dict.pop("teacher.backbone.pos_embed", None)
+        state_dict.pop("student.backbone.pos_embed", None)
+
+    # Remap flat block keys (blocks.N.*) to block_chunks format (blocks.C.N.*)
+    # This handles checkpoints saved without block_chunks (e.g. block_chunks=1)
+    # For block_chunks=4 with 24 blocks: chunk_size=6, blocks.N -> blocks.N//6.N
+    model_state = model.state_dict()
+    # Detect if remapping is needed: check if any flat block key exists but chunked does not
+    import re
+    remapped = {}
+    for k, v in state_dict.items():
+        m = re.match(r'^(.*\.backbone\.blocks\.)(\d+)(\..+)$', k)
+        if m:
+            prefix, block_idx_str, suffix = m.group(1), m.group(2), m.group(3)
+            block_idx = int(block_idx_str)
+            flat_key = k
+            # Check if model uses chunked format
+            if flat_key not in model_state:
+                # Try to find the chunk this block belongs to
+                # Enumerate model keys to find the matching chunk index
+                found = False
+                for chunk_idx in range(10):
+                    chunked_key = f"{prefix}{chunk_idx}.{block_idx}{suffix}"
+                    if chunked_key in model_state:
+                        remapped[chunked_key] = v
+                        found = True
+                        break
+                if not found:
+                    remapped[k] = v  # keep original if no match
+            else:
+                remapped[k] = v
+        else:
+            remapped[k] = v
+    state_dict = remapped
+
+    # Remove keys with shape mismatch to allow safe partial loading
+    model_state = model.state_dict()
+    filtered = {}
+    skipped = []
+    for k, v in state_dict.items():
+        if k in model_state and model_state[k].shape != v.shape:
+            skipped.append(f"{k}: ckpt {tuple(v.shape)} vs model {tuple(model_state[k].shape)}")
+        else:
+            filtered[k] = v
+    if skipped:
+        logger.info("Skipping {} keys due to shape mismatch:\n  {}".format(
+            len(skipped), "\n  ".join(skipped)))
+
+    msg = model.load_state_dict(filtered, strict=False)
     logger.info("Pretrained weights found at {} and loaded with msg: {}".format(pretrained_weights, msg))
 
 

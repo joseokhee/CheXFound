@@ -47,3 +47,26 @@ def collate_data_and_cast(samples_list, mask_ratio_tuple, mask_probability, dtyp
         "upperbound": upperbound,
         "n_masked_patches": torch.full((1,), fill_value=mask_indices_list.shape[0], dtype=torch.long),
     }
+
+
+def collate_data_and_cast_with_params(
+    samples_list, mask_ratio_tuple, mask_probability, dtype, n_tokens=None, mask_generator=None
+):
+    """Identical to collate_data_and_cast but also passes through crop_params.
+
+    crop_params is a CPU-side list of B items; each item is the list of
+    (2 + n_local_crops) crop-parameter dicts produced by
+    DataAugmentationDINOWithParams.  The list is NOT converted to a tensor.
+    """
+    # Filter out None entries from bad/unreadable files
+    samples_list = [s for s in samples_list if s is not None]
+    if not samples_list:
+        return None
+
+    base = collate_data_and_cast(
+        samples_list, mask_ratio_tuple, mask_probability, dtype, n_tokens, mask_generator
+    )
+    # Collect crop_params: list of B dicts (one per sample)
+    crop_params_batch = [s[0]["crop_params"] for s in samples_list]
+    base["crop_params"] = crop_params_batch
+    return base

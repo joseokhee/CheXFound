@@ -1,0 +1,125 @@
+MODEL:
+  WEIGHTS: '/data4/workspaces/shjo/CXR/Pretrain/ChesXFound_weight/dinov2_vitl14.pth'
+
+compute_precision:
+  grad_scaler: false
+  teacher:
+    backbone:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: bf16
+        reduce_dtype: bf16
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: bf16
+        reduce_dtype: fp32
+        buffer_dtype: fp32
+  student:
+    backbone:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: bf16
+        reduce_dtype: bf16
+        buffer_dtype: fp32
+    ibot_head:
+      sharding_strategy: SHARD_GRAD_OP
+      mixed_precision:
+        param_dtype: bf16
+        reduce_dtype: fp32
+        buffer_dtype: fp32
+
+prototype:
+  K: 512
+  d: 1024
+  tau_t: 0.04
+  tau_s: 0.1
+  queue_size: 131072
+  sinkhorn_iters: 3
+  lambda_A: 0.1              # ibot 방해 임계점이 lambda_A≈0.15 → 0.1로 안전하게 유지
+  lambda_A_warmup_epochs: 50  # 100ep 중 절반 동안 천천히 ramp (0→0.1)
+  init_path: ''  # disabled: k-means init had pairwise cosine sim=0.98 (all prototypes same direction)
+                  # PrototypeDictionary uses randn on unit sphere by default, which is better
+
+dino:
+  loss_weight: 0.0
+  head_n_prototypes: 16384
+  head_bottleneck_dim: 256
+  head_hidden_dim: 2048
+  head_nlayers: 3
+  koleo_loss_weight: 0.0
+
+ibot:
+  loss_weight: 1.0
+  separate_head: true
+  head_n_prototypes: 4096  # batch=54 기준 Sinkhorn 안정화 (≈22K masked patches / 4096 ≈ 5.4)
+  head_bottleneck_dim: 256
+  head_hidden_dim: 2048
+  head_nlayers: 3
+  mask_ratio_min_max:
+    - 0.1
+    - 0.5
+  mask_sample_probability: 0.5
+
+student:
+  arch: vit_large
+  patch_size: 14
+  drop_path_rate: 0.4
+  ffn_layer: swiglufused
+  block_chunks: 4
+  num_register_tokens: 4
+  pretrained_weights: ''
+  layerscale: 1.0e-05
+  drop_path_uniform: true
+  qkv_bias: true
+  proj_bias: true
+  ffn_bias: true
+  interpolate_antialias: false
+  interpolate_offset: 0.1
+
+teacher:
+  momentum_teacher: 0.9995
+  final_momentum_teacher: 1.0
+  warmup_teacher_temp: 0.04
+  teacher_temp: 0.07
+  warmup_teacher_temp_epochs: 30
+
+optim:
+  epochs: 100
+  weight_decay: 0.04
+  weight_decay_end: 0.04
+  base_lr: 2.0e-04
+  lr: 0.
+  min_lr: 1.0e-06
+  warmup_epochs: 10
+  clip_grad: 3.0
+  freeze_last_layer_epochs: 1
+  scaling_rule: sqrt_wrt_1024
+  patch_embed_lr_mult: 0.2
+  layerwise_decay: 1.0
+  adamw_beta1: 0.9
+  adamw_beta2: 0.999
+
+train:
+  batch_size_per_gpu: 14
+  dataset_path: ImageNet:split=TRAIN
+  output_dir: .
+  num_workers: 4
+  OFFICIAL_EPOCH_LENGTH: 15784  # 852332 / (18 GPU * 3 GPUs) = 15784 steps/epoch
+  centering: sinkhorn_knopp
+  seed: 0
+
+crops:
+  global_crops_size: 518
+  local_crops_size: 196  # 14×14 = 196 patches (was 140 → 100 patches)
+  global_crops_scale:
+    - 0.4
+    - 1.0
+  local_crops_scale:
+    - 0.20  # sqrt(0.20)≈45% edge, overlap with global min(63%) 보장
+    - 0.5
+  local_crops_number: 4  # 4×196 ≈ 8×100, compute similar but overlap 3× better
+
+evaluation:
+  eval_period_iterations: 0  # disabled — eval caused NCCL hang at step ~5000

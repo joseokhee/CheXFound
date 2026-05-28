@@ -10,7 +10,7 @@ from typing import Any, Callable, List, Optional, TypeVar
 import torch
 from torch.utils.data import Sampler
 
-from .datasets import (ImageNet, ImageNet22k, CXRDatabase, DINOMimic, CheXpert, Shenzhen, CXRDatabase222, CXRDatabasePLCO,
+from .datasets import (ImageNet, ImageNet22k, CXRDatabase, CXRDatabaseCSV, DINOMimic, CheXpert, Shenzhen, CXRDatabase222, CXRDatabasePLCO,
                        CXRLT, CXRLTMultiView, CXRLTAug, CXRLTAugBrax, CXRLTAugNih, CXRLTAugPlus, PLCO, PLCORotateDet, CXRLTTest1,
                        NLST, NLSTMultiView, Montgomery, JSRT, PLCOAllcause)
 from .samplers import EpochSampler, InfiniteSampler, ShardedInfiniteSampler
@@ -68,6 +68,14 @@ def _parse_dataset_str(dataset_str: str):
         class_ = CXRDatabase
         if "split" in kwargs:
             kwargs["split"] = CXRDatabase.Split[kwargs["split"]]
+    elif name == 'CXRDatabaseCSV':
+        class_ = CXRDatabaseCSV
+        # csv_path는 root 인자로 전달: CXRDatabaseCSV:root="/path/to/dataset.csv"
+        if "root" in kwargs:
+            kwargs["csv_path"] = kwargs.pop("root")
+        # split, extra 인자 무시 (CSV 기반이라 불필요)
+        kwargs.pop("split", None)
+        kwargs.pop("extra", None)
     elif name == 'CXRDatabase222':
         class_ = CXRDatabase222
         if "split" in kwargs:

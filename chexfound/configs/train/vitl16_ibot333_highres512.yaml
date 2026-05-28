@@ -1,20 +1,20 @@
 MODEL:
-  WEIGHTS: '/fast/yangz16/outputs/cxr-million/ibot333_checkpoint.pth'
+  WEIGHTS: '/data4/workspaces/shjo/CXR/Pretrain/ChesXFound_weight/dinov2_vitl14.pth'
 dino:
-  head_n_prototypes: 131072
+  head_n_prototypes: 16384  # batch=72 기준 (72×64≈4608, 2제곱수 상향)
   head_bottleneck_dim: 384
 ibot:
   loss_weight: 3.0
   separate_head: true
-  head_n_prototypes: 131072
+  head_n_prototypes: 16384
 train:
-  batch_size_per_gpu: 10
+  batch_size_per_gpu: 24
   dataset_path: ImageNet22k
   centering: sinkhorn_knopp
   OFFICIAL_EPOCH_LENGTH: 2500
 student:
   arch: vit_large
-  patch_size: 16
+  patch_size: 14
   drop_path_rate: 0.4
   ffn_layer: swiglufused
   block_chunks: 4
@@ -22,13 +22,13 @@ student:
 teacher:
   momentum_teacher: 0.994
 optim:
-  epochs: 100
+  epochs: 237  # 50 pass 목표 (852K장, batch=72, EPOCH_LEN=2500)
   weight_decay_end: 0.2
-  base_lr: 2.0e-04
-  warmup_epochs: 10
+  base_lr: 2.0e-04  # 원래 CheXFound 설정 (실효 lr ~2.8e-05, small batch용)
+  warmup_epochs: 24  # 237 epoch 기준 ~10% warmup
   layerwise_decay: 1.0
 crops:
-  global_crops_size: 512
-  local_crops_size: 144
+  global_crops_size: 518
+  local_crops_size: 140
 evaluation:
   eval_period_iterations: 5000

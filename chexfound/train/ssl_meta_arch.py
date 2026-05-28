@@ -124,10 +124,14 @@ class SSLMetaArch(nn.Module):
         raise NotImplementedError
 
     def backprop_loss(self, loss):
+        if not torch.isfinite(loss):
+            logger.warning(f"Non-finite loss ({loss.item():.4f}) — skipping backward to protect parameters")
+            return False
         if self.fp16_scaler is not None:
             self.fp16_scaler.scale(loss).backward()
         else:
             loss.backward()
+        return True
 
     def forward_backward(self, images, teacher_temp):
         n_global_crops = 2
@@ -354,15 +358,12 @@ class SSLMetaArch(nn.Module):
             self.need_to_synchronize_fsdp_streams = False
 
     def update_teacher(self, m):
-        student_param_list = []
-        teacher_param_list = []
         with torch.no_grad():
             for k in self.student.keys():
-                for ms, mt in zip(get_fsdp_modules(self.student[k]), get_fsdp_modules(self.teacher[k])):
-                    student_param_list += ms.params
-                    teacher_param_list += mt.params
-            torch._foreach_mul_(teacher_param_list, m)
-            torch._foreach_add_(teacher_param_list, student_param_list, alpha=1 - m)
+                student_params = list(self.student[k].parameters())
+                teacher_params = list(self.teacher[k].parameters())
+                torch._foreach_mul_(teacher_params, m)
+                torch._foreach_add_(teacher_params, student_params, alpha=1 - m)
 
     def train(self):
         super().train()

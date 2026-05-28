@@ -6,6 +6,7 @@
 from .image_net import ImageNet
 from .image_net_22k import ImageNet22k
 from .cxr_dataset import CXRDatabase
+from .cxr_csv_dataset import CXRDatabaseCSV
 from .cxr_dataset222 import CXRDatabase222
 from .cxr_dataset_plco import CXRDatabasePLCO
 from .dinov2_mimic import DINOMimic

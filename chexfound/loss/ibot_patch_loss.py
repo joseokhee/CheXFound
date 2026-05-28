@@ -109,6 +109,7 @@ class iBOTPatchLoss(nn.Module):
         student_masks_flat,
         n_masked_patches=None,
         masks_weight=None,
+        return_per_patch=False,
     ):
         t = teacher_patch_tokens_masked
         s = student_patch_tokens_masked
@@ -121,9 +122,16 @@ class iBOTPatchLoss(nn.Module):
                 .expand_as(student_masks_flat)[student_masks_flat]
             )
         if n_masked_patches is not None:
+            # per_patch_ce: positive = high reconstruction error = potential lesion (for dynamic weighting)
+            per_patch_ce = (-loss[:n_masked_patches]).detach()
             loss = loss[:n_masked_patches]
+        else:
+            per_patch_ce = (-loss).detach()
         loss = loss * masks_weight
-        return -loss.sum() / student_masks_flat.shape[0]
+        total_loss = -loss.sum() / student_masks_flat.shape[0]
+        if return_per_patch:
+            return total_loss, per_patch_ce
+        return total_loss
 
     @torch.no_grad()
     def update_center(self, teacher_patch_tokens):

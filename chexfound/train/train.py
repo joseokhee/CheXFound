@@ -255,13 +255,32 @@ def do_train(cfg, model, resume=False):
                 fp16_scaler.unscale_(optimizer)
                 for v in model.student.values():
                     v.clip_grad_norm_(cfg.optim.clip_grad)
-            fp16_scaler.step(optimizer)
-            fp16_scaler.update()
+            # NaN gradient 체크 — step 이전에 막아야 파라미터 오염 방지
+            _grad_nan = any(
+                (p.grad is not None and not torch.isfinite(p.grad).all())
+                for pg in optimizer.param_groups for p in pg['params']
+            )
+            if _grad_nan:
+                logger.info("NaN gradient detected — skipping optimizer.step()")
+                optimizer.zero_grad(set_to_none=True)
+                fp16_scaler.update()
+            else:
+                fp16_scaler.step(optimizer)
+                fp16_scaler.update()
         else:
             if cfg.optim.clip_grad:
                 for v in model.student.values():
                     v.clip_grad_norm_(cfg.optim.clip_grad)
-            optimizer.step()
+            # NaN gradient 체크
+            _grad_nan = any(
+                (p.grad is not None and not torch.isfinite(p.grad).all())
+                for pg in optimizer.param_groups for p in pg['params']
+            )
+            if _grad_nan:
+                logger.info("NaN gradient detected — skipping optimizer.step()")
+                optimizer.zero_grad(set_to_none=True)
+            else:
+                optimizer.step()
 
         # perform teacher EMA update
 
@@ -275,8 +294,8 @@ def do_train(cfg, model, resume=False):
         loss_dict_reduced = {k: v.item() / distributed.get_global_size() for k, v in loss_dict.items()}
 
         if math.isnan(sum(loss_dict_reduced.values())):
-            logger.info("NaN detected")
-            raise AssertionError
+            logger.info("NaN loss detected — batch skipped")
+            continue
         losses_reduced = sum(loss for loss in loss_dict_reduced.values())
 
         metric_logger.update(lr=lr)
